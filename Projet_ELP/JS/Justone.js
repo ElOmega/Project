@@ -1,65 +1,82 @@
-function collectClues(players){
-    const clues=[];
-    for (const player of players){
-        while (true){
-            const clue=prompt(player+", qu'elle est ton mot clé");
-            console.log(player + "a choisi le mot :"+ clue);
-            if (clues.includes(clue)){
-                console.log("Le clue est déjà pris");
-            }
-            else{
-                clues.push(clue);
-                break;
-            }
-        }
+const readline = require("readline");
+
+const rl = readline.createInterface({
+  input: process.stdin,
+  output: process.stdout,
+});
+
+function askQuestion(query) {
+  return new Promise((resolve) => rl.question(query, resolve));
+}
+
+async function collectClues(players) {
+  const clues = [];
+  for (const player of players) {
+    while (true) {
+      const clue = await askQuestion(player + ", quel est ton mot clé ? ");
+      console.log({player} + " a choisi le mot : " + clue);
+      if (clues.includes(clue)) {
+        console.log("Le mot clé est déjà pris !");
+      } else {
+        clues.push(clue);
+        break;
+      }
     }
-    return clues;
+  }
+  return clues;
 }
 
-function startGame(){
-    const words=["Arbre","Pomme","Foot","Chien"];
-    const words_to_guess=words[Math.floor(Math.random()*words.length)];
-    console.log("Le mot a faire deviner est " + words_to_guess);
-    return words_to_guess
+function startGame() {
+  const words = ["Arbre", "Pomme", "Foot", "Chien"];
+  const word_guess = words[Math.floor(Math.random() * words.length)];
+  console.log("Le mot à faire deviner est : " + word_guess);
+  return word_guess;
 }
 
-function display(clues,words_to_guess){
-    console.log("ton mot à définir est composer de" + words_to_guess.length + "lettres");
-    console.log("Voici les mots clé:");
-    for (const mot of clues){
-        console.log(mot);
+function display(clues, word_guess) {
+  console.log("Le mot à définir est composé de " + word_guess.length + " lettres.");
+  console.log("Voici les mots clés : ");
+  for (const clue of clues) {
+    console.log(clue);
+  }
+}
+
+async function playGame() {
+  const players = [];
+  while (true) {
+    const name = await askQuestion("Comment s'appelle le joueur ? ");
+    players.push(name);
+    const fin = await askQuestion("C'est tout pour les joueurs ? (oui/non) ");
+    if (fin.toLowerCase() === "oui") {
+      break;
     }
-}
+  }
 
-function checkGuess(guess_word,word_to_guess){
+  const word_guess = startGame();
+  const clues = await collectClues(players);
+  console.log('\x1Bc');
+  display(clues, word_guess);
 
-}
-
-function playGame(){
-    const players =[];
-    while (true){
-        const nom = prompt("Comment s'appelle le nom du joueur");
-        players.push(nom);
-        const verif = prompt ("c'est tout les joueurs ?");
-        if (verif == "oui"){
-            break;
-        }
+  console.log("Tu as 5 essais pour trouver le mot.");
+  const numberOfTries = 5;
+  for (let i = 0; i < numberOfTries; i++) {
+    const word_guessed = await askQuestion("Quel mot penses-tu que c'est ? ");
+    if (word_guessed.toLowerCase() === word_guess.toLowerCase()) {
+      console.log('\x1BC')
+      console.log("Félicitations, tu as trouvé le bon mot !");
+      rl.close();
+      return;
+    } else {
+      console.log(
+        "Mauvaise réponse. Il te reste " + (numberOfTries - (i + 1)) + " essais."
+      );
     }
-    const word_to_guess = startGame();
-    const clues = collectClues(players);
-    display(clues,word_to_guess);
-    console.log("Tu as 5 essaies pour le reussir");
-    const number_of_try=5
-    for(let i=0 ; i<number_of_try ; i++){
-        const guess_word=prompt("Qu'elle mot tu pense que c'est ?");
-        if (guess_word===word_to_guess){
-            console.log("Félécitation tu as le bon mot")
-            return
-        } else{
-            console.log("C'est le mauvais mot tu as plus que " + (number_of_try-i))
-        }
-    }
-    console.log("Tu as fait" + number_of_try + "error. Voici le mot qu'il fallait deviner" + word_to_guess + "!")
+  }
+  console.log('\x1BC')
+  console.log(
+    "Tu as épuisé tes" + numberOfTries + " essais. Le mot à deviner était : ${wordToGuess}."
+  );
+  rl.close();
 }
 
-playGame()
+playGame();
