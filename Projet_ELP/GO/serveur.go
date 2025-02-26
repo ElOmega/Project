@@ -4,16 +4,13 @@ import (
 	"bufio"
 	"fmt"
 	"net"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
 
-// La matrice initiale est carré et est de dimension fini. 1 = cellule vivante, 0 = cellule morte
-
-// initialisation de la matrice
+// La matrice initiale
 func matrice_init(N int) [][]int {
 	matrice := make([][]int, N)
 	for i := 0; i < N; i++ {
@@ -62,7 +59,7 @@ func compte_voisins(matrice [][]int, i int, j int, rows int, cols int) int {
 	return sum
 }
 
-// En fonction de sum, voir si la cellule survit ou meurt
+// Regarde si il y a trop de voisins ou non
 func vivant(matrice [][]int, i int, j int, sum int) int {
 	if sum == 3 || (matrice[i][j] == 1 && sum == 2) {
 		return 1
@@ -70,31 +67,20 @@ func vivant(matrice [][]int, i int, j int, sum int) int {
 	return 0
 }
 
-// copie du tableau pour modifier plus tard
-func copie(matrice [][]int, rows int, cols int) [][]int {
-
-	matrice_copie := matrice_init(rows)
-	for i := 0; i < rows; i++ {
-		for j := 0; j < cols; j++ {
-			matrice_copie[i][j] = matrice[i][j]
-		}
-	}
-	return matrice_copie
-}
-
-// fonction d'affichage
+// Affiche la matrice
 func SendMatrice(conn net.Conn, matrice [][]int, rows int) {
 	for i := 0; i < rows; i++ {
+		line := "" // On construit la ligne avant de l'envoyer
 		for j := 0; j < rows; j++ {
 			if matrice[i][j] == 1 {
-				fmt.Fprintf(conn, "O ")
+				line += "O "
 			} else {
-				fmt.Fprintf(conn, ". ")
+				line += ". "
 			}
 		}
-		fmt.Fprintln(conn)
+		fmt.Fprintln(conn, line) // Envoi de la ligne avec un retour à la ligne propre
 	}
-	fmt.Fprintln(conn, "---")
+	fmt.Fprintln(conn, "---") // Séparateur clair après la matrice
 }
 
 // repartire les fonctions
@@ -111,86 +97,96 @@ func ProcessSection(startRow int, endRow int, matrice [][]int, tab_copie [][]int
 	ch <- localResults
 }
 
-// serveur
+func copie(matrice [][]int, rows int, cols int) [][]int {
+
+	matrice_copie := matrice_init(rows)
+	for i := 0; i < rows; i++ {
+		for j := 0; j < cols; j++ {
+			matrice_copie[i][j] = matrice[i][j]
+		}
+	}
+	return matrice_copie
+}
+
 func clientdecision(conn net.Conn, matrice [][]int, rows int) {
-	defer conn.Close()
-	reader := bufio.NewReader(os.Stdin)
+	reader := bufio.NewReader(conn)
+
 	for {
+		// Envoyer la matrice au client pour qu'il la voit dès le début
 		SendMatrice(conn, matrice, rows)
 
 		message, err := reader.ReadString('\n')
 		if err != nil {
-			fmt.Println("Reading Error :", err)
+			fmt.Println("Error reading from client:", err)
 			return
 		}
+
 		message = strings.TrimSpace(message)
-		coords := strings.Split(message, ";")
+		if message == "end" {
+			fmt.Println("Client finished setup.")
+			break // Ne ferme pas la connexion, juste quitte la boucle
+		}
+
+		coords := strings.Split(message, ",")
 		if len(coords) != 2 {
-			fmt.Print("Error, send rows;line")
+			fmt.Fprintln(conn, "Error: Invalid format. Please send row,col")
 			continue
 		}
+
 		row, err1 := strconv.Atoi(coords[0])
 		col, err2 := strconv.Atoi(coords[1])
 		if err1 != nil || err2 != nil || row >= rows || col >= rows || row < 0 || col < 0 {
-			fmt.Fprintln(conn, "Invalide Coordinates, try again")
+			fmt.Fprintln(conn, "Error: Invalid coordinates. Please try again.")
 			continue
 		}
 
-		matrice[row][col] = 1
-
-		fmt.Fprintln(conn, "Cell added")
-
+		if matrice[row][col] == 1 {
+			matrice[row][col] = 0
+			fmt.Fprintln(conn, "Cell removed")
+		} else {
+			matrice[row][col] = 1
+			fmt.Fprintln(conn, "Cell added")
+		}
 	}
 }
 
-// lancer le code et initialisations des variable
-// depart des cellules
-// boucle principale
 func main() {
-	//initialisation valeur
 	N := 20
 	nombre_tour := 100
 	rows, cols := N, N
 	matrice := matrice_init(N)
-	var conn net.Conn
 
-	//démarrage du serveur TCP
-	go func() {
-		listener, err := net.Listen("tcp", ":8080")
-		if err != nil {
-			fmt.Println("Error when starting the server :", err)
-			return
-		}
-		defer listener.Close()
+	// Démarrer le serveur TCP
+	listener, err := net.Listen("tcp", ":8080")
+	if err != nil {
+		fmt.Println("Error when starting the server:", err)
+		return
+	}
+	defer listener.Close()
 
-		for {
-			conn, err := listener.Accept()
-			if err != nil {
-				fmt.Println("Error of connection:", err)
-				continue
-			}
-			fmt.Println("Client connecté :", conn.RemoteAddr())
+	conn, err := listener.Accept()
+	if err != nil {
+		fmt.Println("Error of connection:", err)
+		return
+	}
+	defer conn.Close()
+	fmt.Println("Client connecté :", conn.RemoteAddr())
 
-			// Gestion de la connexion client
-			go clientdecision(conn, matrice, rows)
-		}
+	// Phase d'initialisation
+	clientdecision(conn, matrice, rows)
 
-	}()
-
-	//démarrage du jeu
-	start_time := time.Now()
+	// Simulation
 	for round := 0; round < nombre_tour; round++ {
-
+		start_time := time.Now()
 		fmt.Println("Round :", round+1)
 		tab_copie := copie(matrice, rows, cols)
 
-		//Concurrence
+		// Concurrence
 		var wg sync.WaitGroup
 		NumWorkers := 4
 		ch := make(chan [][]int, NumWorkers)
 		sectionSize := rows / NumWorkers
 
-		//lancer les Goroutines
 		for i := 0; i < NumWorkers; i++ {
 			startRow := i * sectionSize
 			endRow := startRow + sectionSize
@@ -200,12 +196,12 @@ func main() {
 			wg.Add(1)
 			go ProcessSection(startRow, endRow, matrice, tab_copie, rows, cols, &wg, ch)
 		}
+
 		go func() {
 			wg.Wait()
 			close(ch)
 		}()
 
-		//reccupérer les resultats
 		NewMatrice := matrice_init(rows)
 		for results := range ch {
 			for i := 0; i < rows; i++ {
@@ -217,10 +213,17 @@ func main() {
 			}
 		}
 		matrice = NewMatrice
+
+		// Envoyer la matrice au client après chaque round
 		SendMatrice(conn, matrice, rows)
+
 		end_time := time.Now()
 		time_took := end_time.Sub(start_time)
 		fmt.Println("The Time took to do the code is :", time_took)
-
+		time.Sleep(1 * time.Second)
 	}
+
+	// Fermer la connexion uniquement à la fin de la simulation
+	fmt.Println("Simulation finished. Closing connection.")
+
 }
